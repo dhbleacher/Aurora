@@ -1,1 +1,212 @@
-//file transfer in progress
+//Aurora V1.0.0 Avionics Code
+//Official Code of DHB Aerospace.
+
+#include <arduino-timer.h>
+#include <MPU6050_light.h>
+
+#include <PID_v1.h>
+#include <Wire.h>
+#include <Servo.h>
+#include <SD.h>
+#include <MemoryFree.h>
+
+#define X_SERVO_PIN 5
+#define Y_SERVO_PIN 6
+#define PARACHUTE_SERVO_PIN 3
+
+Servo x_servo;
+Servo y_servo;
+Servo Parachute_servo;
+
+MPU6050 mpu(Wire);
+unsigned long timer = 0;
+
+unsigned long padIdleTimer;
+unsigned long startTime = 0;
+unsigned long elapsedTime = 0;
+unsigned long delayTime = 15000;
+bool servoMoved = false;
+
+boolean state = false;
+boolean indicator = false;
+
+int counter =0;
+
+double setpoint_x = 0;
+double setpoint_y = 0;
+double angle_x = 0;
+double angle_y = 0;
+double output_x = 0;
+double output_y = 0;
+
+double kp_x = 2; //prev 0.8
+double ki_x = 0.002;
+double kd_x = 0.0001;
+
+double kp_y = 2; //prev 0.8
+double ki_y = 0.002;
+double kd_y = 0.0001;
+
+int deadband = 0;
+
+double* setpoint_x_ptr = &setpoint_x;
+double* setpoint_y_ptr = &setpoint_y;
+
+PID x_PID(&angle_x, &output_x, setpoint_x_ptr, kp_x, ki_x, kd_x, DIRECT);
+PID y_PID(&angle_y, &output_y, setpoint_y_ptr, kp_y, ki_y, kd_y, DIRECT);
+
+const int chipSelect = 10; // Pin connected to the SD card module's CS pin
+
+void setup() {
+  Serial.begin(9600);
+  Serial.println(freeMemory()); // Print initial free memory
+  Wire.begin();
+ 
+  x_servo.attach(X_SERVO_PIN);
+  y_servo.attach(Y_SERVO_PIN);
+  Parachute_servo.attach(PARACHUTE_SERVO_PIN);
+
+  if (!SD.begin(chipSelect)) {
+    Serial.println("SD card initialization failed!");
+    return;
+  }
+
+// zeroGyro();
+
+  x_PID.SetOutputLimits(-90, 90); //prev -90, 90
+  y_PID.SetOutputLimits(-90, 90); //prev -90, 90
+
+  x_PID.SetSampleTime(10);
+  y_PID.SetSampleTime(10);
+
+  x_PID.SetMode(AUTOMATIC);
+  y_PID.SetMode(AUTOMATIC);
+
+  startTime = millis();
+
+  byte status = mpu.begin();
+  Serial.print(F("MPU6050 status: "));
+  Serial.println(status);
+  while(status!=0){ } // stop everything if could not connect to MPU6050
+ 
+  Serial.println(F("Calculating offsets, do not move MPU6050"));
+  delay(1000);
+  // mpu.upsideDownMounting = true; // uncomment this line if the MPU6050 is mounted upside-down
+  mpu.calcOffsets(); // gyro and accelero
+  Serial.println("Done!\n");
+
+
+}
+void logData() {
+  timer = millis();
+  File dataFile = SD.open("test.txt", FILE_WRITE);
+
+   if (dataFile) {
+    elapsedTime = millis() - startTime;
+   
+    dataFile.print("Elapsed Time: ");
+    dataFile.print(millis());
+    dataFile.print("ms, Angle X: ");
+    dataFile.print(angle_x);
+    dataFile.print(", Angle Y: ");
+    dataFile.print(angle_y);
+    dataFile.print(", Output X: ");
+    dataFile.print(output_x);
+    dataFile.print(", Output Y: ");
+    dataFile.println(output_y);
+    dataFile.close();
+
+  }
+}
+ boolean CheckPadIdle(boolean state) {
+    if (mpu.getAccZ() >= 1.5) {
+      state = false;
+    } else {
+      state = true;
+    }
+    return state;
+  }
+  void ParachuteWait() {
+  static unsigned long startTime;
+  static bool resetTime = true;
+
+  if (resetTime) {
+    startTime = millis();
+    resetTime = false;
+  }
+
+  elapsedTime = millis() - startTime;
+
+  if (elapsedTime >= 3200) {
+    Parachute_servo.write(0);
+    }
+}
+void loop() {
+int currentMillis = millis();
+
+ 
+  mpu.update();
+ 
+ 
+ // Serial.println(freeMemory()); // Print free memory during runtime
+  angle_x = -mpu.getAngleX();
+  angle_y = -mpu.getAngleY();
+ 
+  padIdleTimer == millis();
+ 
+ if (indicator == true) {
+ 
+  x_PID.Compute();
+  y_PID.Compute();
+ 
+  output_x = output_x + 90;
+  output_y = output_y + 90;
+
+  if (abs(output_x) < deadband) {
+    output_x = 0;
+  }
+  if (abs(output_y) < deadband) {
+    output_y = 0;
+  }
+ 
+  x_servo.write(output_x);
+  y_servo.write(output_y);
+
+ParachuteWait();
+}
+if (CheckPadIdle(state) == false) {
+  indicator = true;
+  }
+
+  Serial.println("X: ");
+
+ 
+  Serial.print(output_x);
+  Serial.print(" Y: ");
+  Serial.print(output_y);
+  Serial.print(" Z acc");
+  Serial.print(mpu.getAccZ());
+  Serial.print(" Y acc");
+  Serial.print(mpu.getAccY());
+  Serial.print(" X acc");
+  Serial.print(mpu.getAccX());
+ 
+  int current_x = x_servo.read();
+  int current_y = y_servo.read();
+ 
+ 
+
+ 
+delay(10);
+  if (millis()  - startTime >= 350) { // Run every 350 ms
+    logData();
+  }
+ 
+  }
+
+
+
+
+
+ 
+
